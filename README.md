@@ -1,5 +1,9 @@
 # Guy on the Couch
 
+Allows you to create an unlimited (?) number of couchdb databases and keep them replicated with a remote.  e.g. create a new database for each user instead of lumping it all together.
+
+## About
+
 As of right now, pretty much just a test.  Seems to be working but minimal testing done.  Feedback welcome.
 
 ## Usage
