@@ -1,0 +1,14 @@
+{
+  "name": "guyonthecouch",
+  "version": "0.0.1",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Cory Mawhorter <cory.mawhorter@gmail.com> (http://mawhorter.net/)",
+  "license": "MIT",
+  "dependencies": {
+    "async": "^0.9.0",
+    "nano": "^6.1.2"
+  }
+}
