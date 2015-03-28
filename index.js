@@ -17,6 +17,7 @@ function Guy(options) {
   this.options.database = this.options.database || 'user_databases';
   this.options.local = this.options.local || url.parse('http://127.0.0.1:5984');
   this.options.remote = this.options.remote;
+  this.options.logger = this.options.logger || function() {};
   this.localNano = null;
   this.remoteNano = null;
   this.queueTasks = {};
@@ -32,10 +33,11 @@ Guy.prototype._init = function() {
   this.localNano = Nano(this.options.local.href);
   this.remoteNano = Nano(this.options.remote.href);
 
-  console.log('checking if remote user database exists');
+  this.logger.debug('checking if remote user database exists');
   this.remoteNano.db[this.options.createRemote ? 'create' : 'get'](this.options.database, function (err, body) {
     if (err && !/\bexists\b/i.test(err.message)) {
-      throw new Error('Error communicating with remote database "' + _this._buildUrl(_this.options.remote, { auth: '****', pathname: _this.options.database }) + '". Use option createRemote: true to create it');
+      _this.emit('error', new Error('Error communicating with remote database "' + _this._buildUrl(_this.options.remote, { auth: '****', pathname: _this.options.database }) + '". Use option createRemote: true to create it'));
+      return;
     }
     _this._initDatabase(function(err) {
       if (err) {
@@ -45,7 +47,7 @@ Guy.prototype._init = function() {
         if (err) {
           return _this.emit('error', err);
         }
-        console.log('sync and watch has run; emitting ready as soon as queue drains');
+        _this.logger.debug('sync and watch has run; emitting ready as soon as queue drains');
         _this.queue.drain = function() {
           if (!_this.ready) {
             _this.emit('ready');
@@ -63,12 +65,12 @@ Guy.prototype._init = function() {
 
 Guy.prototype._initDatabase = function(callback) {
   var _this = this;
-  console.log('init local database');
+  _this.logger.debug('init local database');
   var _this = this;
   this.localNano.db.create(this.options.database, function(err, body) {
     // TODO: check error to make sure it's an "already exists" error?
     if (!err) {
-      console.log('init local database: creating local, replicating');
+      _this.logger.debug('init local database: creating local, replicating');
       _this._replicate(_this.options.database, function(err) {
         if (err) {
           return callback(err);
@@ -85,10 +87,10 @@ Guy.prototype._initDatabase = function(callback) {
 Guy.prototype._watchLocal = function(callback) {
   var _this = this;
   var db = this.localNano.use(this.options.database);
-  console.log('init local database: watching for changes on %s', this.options.database);
+  _this.logger.debug('init local database: watching for changes on ' + this.options.database);
   var feed = db.follow({ since: 'now' });
   feed.on('change', function (change) {
-    console.log("change: ", change);
+    _this.logger.debug(change, 'change');
     _this._enqueue(change.id, !change.deleted);
   });
   feed.on('error', function (err) {
@@ -101,7 +103,7 @@ Guy.prototype._watchLocal = function(callback) {
 // syncs the current data of options.database i.e. adds/removes databases
 Guy.prototype._syncLocal = function(callback) {
   var _this = this;
-  console.log('starting to sync offline user database changes');
+  _this.logger.debug('starting to sync offline user database changes');
   this.localNano.db.list(function(err, allLocalDatabases) {
     if (err) {
       return callback(err);
@@ -115,7 +117,7 @@ Guy.prototype._syncLocal = function(callback) {
         var userDatabase = row.id;
         if (!(userDatabase in _this.queueTasks)) {
           if (allLocalDatabases.indexOf(userDatabase) < 0) {
-            console.log('user database created while offline', userDatabase);
+            _this.logger.debug('user database created while offline ' + userDatabase);
             _this._enqueue(userDatabase, true);
           }
         }
@@ -153,16 +155,17 @@ Guy.prototype._queueWorker = function(task, callback) {
 
 // inserts two-way replication between database on local and remote
 Guy.prototype._replicate = function(database, callback) {
+  var _this = this;
   var rep = this.localNano.use('_replicator')
     , localUrl = this.databaseUrl('local', database)
     , remoteUrl = this.databaseUrl('remote', database);
-  console.log('replicating database: ', database);
+  this.logger.debug('replicating database: ', database);
 
   this.remoteNano.db.create(database, function(err, body) {
     if (err && !/\bexists\b/i.test(err.message)) {
       return callback(err);
     }
-    console.log('replicating database: inserting replication task');
+    _this.logger.debug('replicating database: inserting replication task');
     rep.insert({
       source: localUrl,
       target: remoteUrl,
@@ -171,7 +174,7 @@ Guy.prototype._replicate = function(database, callback) {
       if (err) {
         return callback(err);
       }
-      console.log('replicating database: replicated partially complete');
+      _this.logger.debug('replicating database: replicated partially complete');
       rep.insert({
         target: localUrl,
         source: remoteUrl,
@@ -197,7 +200,7 @@ Guy.prototype._create = function(database, callback) {
   var _this = this;
   var db = this.localNano.use(this.options.database);
 
-  console.log('creating database: ', database);
+  _this.logger.debug('creating database: ' + database);
 
   // create database locally
   this.localNano.db.create(database, function(err) {
@@ -209,14 +212,14 @@ Guy.prototype._create = function(database, callback) {
         return callback(err);
       }
     }
-    console.log('creating database: created locally; adding tracking row in user db');
+    _this.logger.debug('creating database: created locally; adding tracking row in user db');
     // insert it into the list of all user databases
     db.insert({ created: new Date() }, database, function(err, body) {
       if (err && !/\bconflict\b/i.test(err.message)) {
         return callback(err);
       }
       // replicate the newly created database
-      console.log('creating database: tracking row inserted and triggering replication for new db');
+      _this.logger.debug('creating database: tracking row inserted and triggering replication for new db');
       _this._replicate(database, callback);
     });
   });
