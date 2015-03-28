@@ -255,5 +255,9 @@ Guy.prototype.remove = function(database, callback) {
   });
 };
 
+Guy.prototype.get = function(database, callback) {
+  return this.create(database, callback);
+};
+
 module.exports = Guy;
 
