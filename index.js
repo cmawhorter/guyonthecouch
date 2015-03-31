@@ -43,6 +43,7 @@ Guy.prototype._init = function() {
       if (err) {
         return _this.emit('error', err);
       }
+      _this.emit('online');
       _this._syncLocal(function(err) {
         if (err) {
           return _this.emit('error', err);
