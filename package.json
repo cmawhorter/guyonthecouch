@@ -10,5 +10,8 @@
   "dependencies": {
     "async": "^0.9.0",
     "nano": "^6.1.2"
+  },
+  "devDependencies": {
+    "mocha": "^2.2.1"
   }
 }

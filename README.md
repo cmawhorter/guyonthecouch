@@ -42,3 +42,7 @@ guy.on('ready', function() {
 It creates an index of users databases in `options.database` and sets up replication via the special [_replicator database](https://gist.github.com/fdmanana/832610).
 
 The user database is then monitored for changes and user databases are created/removed automatically.  
+
+## Related libs
+
+https://github.com/pegli/couchdb-dbperuser-provisioning
