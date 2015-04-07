@@ -11,7 +11,7 @@ As of right now, pretty much just a test.  Seems to be working but minimal testi
 ```javascript
 // pass in options
 var guy = new Guy({
-  remote: url.parse('https://some:account@some.cloudant.com'),
+  remote: url.parse('https://some:account@some.example.com'),
   local: url.parse('http://127.0.0.1:5984'),
   database: 'user_databases',
   createRemote: true

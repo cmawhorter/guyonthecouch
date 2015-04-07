@@ -65,10 +65,8 @@ Guy.prototype.start = function() {
           }
           _this.logger && _this.logger.debug('sync and watch has run; emitting ready as soon as queue drains');
           _this.queue.drain = function() {
-            if (!_this.ready) {
-              _this.emit('ready');
-              _this.ready = true;
-            }
+            _this.ready = true;
+            _this.emit('ready');
           };
           // if the queue is empty, manually trigger drain (bug in async?)
           if (!_this.queue.length()) {
@@ -89,7 +87,9 @@ Guy.prototype.stop = function() {
 };
 
 Guy.prototype._initServer = function(callback) {
-  this._replicate('_users', callback);
+  // TODO: support users and make option
+  // this._replicate('_users', callback);
+  callback(null);
 };
 
 Guy.prototype._initDatabase = function(callback) {
@@ -232,7 +232,6 @@ Guy.prototype._buildUserData = function(user, password) {
 
 Guy.prototype._create = function(user, callback) {
   var _this = this;
-  var db = this.localNano.use(this.options.database);
   var userDatabase = this.db(user);
 
   _this.logger && _this.logger.debug('creating database: ' + userDatabase, _this.options.local.href);
@@ -243,24 +242,25 @@ Guy.prototype._create = function(user, callback) {
       return callback(new Error(err.message));
     }
     _this.logger && _this.logger.debug('creating database: tracking row inserted and triggering replication for new db', _this.options.local.href);
-    var securityData = {
-      // TODO: configurable?
-      // only super admins have access
-      admins: {
-        names: [],
-        roles: [],
-      },
-      members: {
-        names: [user],
-        roles: [_this.options.databaseRole],
-      }
-    };
-    _this.localNano.use(userDatabase).insert(securityData, '_security', function(err) {
-      if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-        return callback(new Error(err.message));
-      }
+    // TODO: turn back on when _users is fixed
+    // var securityData = {
+    //   // TODO: configurable?
+    //   // only super admins have access
+    //   admins: {
+    //     names: [],
+    //     roles: [],
+    //   },
+    //   members: {
+    //     names: [user],
+    //     roles: [_this.options.databaseRole],
+    //   }
+    // };
+    // _this.localNano.use(userDatabase).insert(securityData, '_security', function(err) {
+    //   if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+    //     return callback(new Error(err.message));
+    //   }
       _this._replicate(userDatabase, callback);
-    });
+    // });
   });
 };
 
@@ -277,14 +277,24 @@ Guy.prototype._remove = function(user, callback) {
   });
 };
 
-Guy.prototype._removeTrackingDocument = function(user, callback) {
+Guy.prototype._addTrackingDocument = function(user, callback) {
   var _this = this;
-  _this.logger && _this.logger.debug('removing database tracking document: ' + user);
-  this.localNano.use(this.options.database).get(user, function(err, result) {
+  _this.remoteNano.use(_this.options.database).insert({ created: new Date() }, user, function(err, body) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
       return callback(new Error(err.message));
     }
-    _this.localNano.use(_this.options.database).destroy(user, result ? result._rev : null, function(err) {
+    callback(null);
+  });
+};
+
+Guy.prototype._removeTrackingDocument = function(user, callback) {
+  var _this = this;
+  _this.logger && _this.logger.debug('removing database tracking document: ' + user);
+  this.remoteNano.use(this.options.database).get(user, function(err, result) {
+    if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+      return callback(new Error(err.message));
+    }
+    _this.remoteNano.use(_this.options.database).destroy(user, result ? result._rev : null, function(err) {
       _this.logger && _this.logger.debug('removing database tracking document: ' + user + '; callback reached');
       if (err && !re_acceptableErrorsForCrud.test(err.message)) {
         return callback(new Error(err.message));
@@ -317,41 +327,46 @@ Guy.prototype.remove = function(user, callback) {
   return this;
 };
 
-Guy.prototype.get = function(user, create, callback) {
-  var _this = this;
-  if (typeof create === 'function') {
-    callback = create;
-    create = false;
-  }
-  if (true === create) {
-    this.create(user, callback);
-  }
-  else {
-    this.localNano.db.get(this.db(user), function(err, body) {
-      if (err) {
-        return callback(new Error(err.message));
-      }
-      callback(null, _this.localNano.use(_this.db(user)));
-    });
-  }
+Guy.prototype.get = function(user, callback) {
+  var _this = this
+    , userDatabase = this.db(user);
+  this.localNano.db.get(userDatabase, function(err, body) {
+    if (err) {
+      return callback(new Error(err.message));
+    }
+    callback(null, _this.localNano.use(userDatabase));
+  });
   return this;
 };
 
 // destroys the db on the remote first, if possible
 Guy.prototype.destroy = function(user, callback) {
   var _this = this
+    , userDatabase = this.db(user)
     , db = this.localNano.use(this.options.database);
-  var userId = 'org.couchdb.user:' + user;
-  _this.localNano.use('_users').get(userId, function(err, result) {
+  this.remoteNano.db.destroy(userDatabase, function(err) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
       return callback(new Error(err.message));
     }
-    _this.localNano.use('_users').destroy(userId, result._rev, function(err) {
-      if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-        return callback(new Error(err.message));
-      }
-      _this._removeTrackingDocument(user, callback);
-    });
+    // FIXME: support _users and make option
+    // var userId = 'org.couchdb.user:' + user;
+    // _this.remoteNano.use('_users').get(userId, function(err, result) {
+    //   if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+    //     return callback(new Error(err.message));
+    //   }
+    //   if (result) {
+    //     _this.remoteNano.use('_users').destroy(userId, result._rev, function(err) {
+    //       if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+    //         return callback(new Error(err.message));
+    //       }
+          _this._removeTrackingDocument(user, callback);
+    //     });
+    //   }
+    //   else {
+    //     // user does not exist on the server, just try to remove tracking doc
+    //     _this._removeTrackingDocument(user, callback);
+    //   }
+    // });
   });
   return this;
 };
@@ -359,12 +374,12 @@ Guy.prototype.destroy = function(user, callback) {
 // registers the db on the remote immediately
 Guy.prototype.register = function(user, password, callback) {
   var _this = this
-    , db = this.localNano.use('_users')
     , userDatabase = this.db(user);
-  db.insert(this._buildUserData(user, password), 'org.couchdb.user:' + user, function(err, result) {
-    if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-      return callback(new Error(err.message));
-    }
+  // FIXME: support users and make option
+  // this.remoteNano.use('_users').insert(this._buildUserData(user, password), 'org.couchdb.user:' + user, function(err, result) {
+  //   if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+  //     return callback(new Error(err.message));
+  //   }
     // replicate the newly created database
     // create database remote
     _this.logger && _this.logger.debug('creating database: created locally; creating remote');
@@ -374,14 +389,9 @@ Guy.prototype.register = function(user, password, callback) {
       }
       _this.logger && _this.logger.debug('creating database: created locally; adding tracking row in user db');
       // insert it into the list of all user databases
-      _this.localNano.use(_this.options.database).insert({ created: new Date() }, user, function(err, body) {
-        if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-          return callback(new Error(err.message));
-        }
-        callback(null);
-      });
+      _this._addTrackingDocument(user, callback);
     });
-  });
+  // });
   return this;
 };
 
