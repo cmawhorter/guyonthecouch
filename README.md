@@ -1,3 +1,15 @@
+# Abandoned soon
+
+This will soon be abandoned because there are better alternatives coming.  It looks like couchdb 2.0 will ship with cluster support backed in along with [couchperuser](https://github.com/etrepum/couchperuser)
+
+If you need per-user couchdb databases now and can't wait, you might want to look into couchperuser instead of this.
+
+Further reading:
+  - couchperuser - https://issues.apache.org/jira/browse/COUCHDB-2191
+  - couchperuser - http://wilderness.apache.org/archives/couchdb-meeting-22_04_2015-2479.html
+  - coming cluster support - http://docs.couchdb.org/en/latest/cluster/index.html?highlight=cluster
+  - cluster branch - https://github.com/apache/couchdb/tree/developer-preview-2.0
+
 # Guy on the Couch
 
 Allows you to create an unlimited (?) number of couchdb databases and keep them replicated with a remote.  e.g. create a new database for each user instead of lumping it all together.
