@@ -27,17 +27,20 @@ function Guy(options) {
   this.remoteNano = null;
   this.queueTasks = null;
   this.queue = null;
+  this.feed = null;
   this.ready = false;
 }
 
 util.inherits(Guy, events.EventEmitter);
 
 Guy.prototype.start = function() {
+  if (this.ready) {
+    throw new Error('Call stop before calling start again');
+  }
   var _this = this;
   this.localNano = Nano(this.options.local.href);
   this.remoteNano = Nano(this.options.remote.href);
 
-  this.ready = false;
   this.queueTasks = {};
   this.queue = async.queue(this._queueWorker.bind(this), this.options.concurrency || 4);
 
@@ -62,10 +65,8 @@ Guy.prototype.start = function() {
           }
           _this.logger && _this.logger.debug('sync and watch has run; emitting ready as soon as queue drains');
           _this.queue.drain = function() {
-            if (!_this.ready) {
-              _this.emit('ready');
-              _this.ready = true;
-            }
+            _this.ready = true;
+            _this.emit('ready');
           };
           // if the queue is empty, manually trigger drain (bug in async?)
           if (!_this.queue.length()) {
@@ -78,8 +79,17 @@ Guy.prototype.start = function() {
   return this;
 };
 
+Guy.prototype.stop = function() {
+  this.ready = false;
+  this.feed && this.feed.stop();
+  this.queue && this.queue.kill();
+  return this;
+};
+
 Guy.prototype._initServer = function(callback) {
-  this._replicate('_users', callback);
+  // TODO: support users and make option
+  // this._replicate('_users', callback);
+  callback(null);
 };
 
 Guy.prototype._initDatabase = function(callback) {
@@ -103,15 +113,15 @@ Guy.prototype._watchLocal = function(callback) {
   var _this = this;
   var db = this.localNano.use(this.options.database);
   _this.logger && _this.logger.debug('init local database: watching for changes on ' + this.options.database);
-  var feed = db.follow({ since: 'now' });
-  feed.on('change', function (change) {
+  this.feed = db.follow({ since: 'now' });
+  this.feed.on('change', function (change) {
     _this.logger && _this.logger.debug(change, 'change');
     _this._enqueue(change.id, !change.deleted);
   });
-  feed.on('error', function (err) {
+  this.feed.on('error', function (err) {
     _this.emit('error', err);
   });
-  feed.follow();
+  this.feed.follow();
   callback(null);
 };
 
@@ -222,36 +232,35 @@ Guy.prototype._buildUserData = function(user, password) {
 
 Guy.prototype._create = function(user, callback) {
   var _this = this;
-  var db = this.localNano.use(this.options.database);
   var userDatabase = this.db(user);
 
-  _this.logger && _this.logger.debug('creating database: ' + userDatabase);
+  _this.logger && _this.logger.debug('creating database: ' + userDatabase, _this.options.local.href);
 
   // create database locally
   this.localNano.db.create(userDatabase, function(err) {
-    if (err) {
-      if (re_acceptableErrorsForCrud.test(err.message)) {
-        return callback(null);
-      }
+    if (err && !re_acceptableErrorsForCrud.test(err.message)) {
       return callback(new Error(err.message));
     }
-    _this.logger && _this.logger.debug('creating database: created locally; adding tracking row in user db');
-    // insert it into the list of all user databases
-    db.insert({ created: new Date() }, user, function(err, body) {
-      if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-        return callback(new Error(err.message));
-      }
-      // replicate the newly created database
-      // create database remote
-      _this.logger && _this.logger.debug('creating database: created locally; creating remote');
-      _this.remoteNano.db.create(userDatabase, function(err) {
-        if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-          return callback(new Error(err.message));
-        }
-        _this.logger && _this.logger.debug('creating database: tracking row inserted and triggering replication for new db');
-        _this._replicate(userDatabase, callback);
-      });
-    });
+    _this.logger && _this.logger.debug('creating database: tracking row inserted and triggering replication for new db', _this.options.local.href);
+    // TODO: turn back on when _users is fixed
+    // var securityData = {
+    //   // TODO: configurable?
+    //   // only super admins have access
+    //   admins: {
+    //     names: [],
+    //     roles: [],
+    //   },
+    //   members: {
+    //     names: [user],
+    //     roles: [_this.options.databaseRole],
+    //   }
+    // };
+    // _this.localNano.use(userDatabase).insert(securityData, '_security', function(err) {
+    //   if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+    //     return callback(new Error(err.message));
+    //   }
+      _this._replicate(userDatabase, callback);
+    // });
   });
 };
 
@@ -264,24 +273,28 @@ Guy.prototype._remove = function(user, callback) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
       return callback(new Error(err.message));
     }
-    _this.logger && _this.logger.debug('removing database: removed locally; removing remote');
-    _this.remoteNano.db.destroy(userDatabase, function(err) {
-      if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-        return callback(new Error(err.message));
-      }
-      _this._removeTrackingDocument(user, callback);
-    });
+    callback(null);
+  });
+};
+
+Guy.prototype._addTrackingDocument = function(user, callback) {
+  var _this = this;
+  _this.remoteNano.use(_this.options.database).insert({ created: new Date() }, user, function(err, body) {
+    if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+      return callback(new Error(err.message));
+    }
+    callback(null);
   });
 };
 
 Guy.prototype._removeTrackingDocument = function(user, callback) {
   var _this = this;
   _this.logger && _this.logger.debug('removing database tracking document: ' + user);
-  this.localNano.use(this.options.database).get(user, function(err, result) {
+  this.remoteNano.use(this.options.database).get(user, function(err, result) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
       return callback(new Error(err.message));
     }
-    _this.localNano.use(_this.options.database).destroy(user, result ? result._rev : null, function(err) {
+    _this.remoteNano.use(_this.options.database).destroy(user, result ? result._rev : null, function(err) {
       _this.logger && _this.logger.debug('removing database tracking document: ' + user + '; callback reached');
       if (err && !re_acceptableErrorsForCrud.test(err.message)) {
         return callback(new Error(err.message));
@@ -314,44 +327,46 @@ Guy.prototype.remove = function(user, callback) {
   return this;
 };
 
-Guy.prototype.get = function(user, create, callback) {
-  var _this = this;
-  if (typeof create === 'function') {
-    callback = create;
-    create = false;
-  }
-  if (true === create) {
-    this.create(user, callback);
-  }
-  else {
-    this.localNano.db.get(this.db(user), function(err, body) {
-      if (err) {
-        return callback(new Error(err.message));
-      }
-      callback(null, _this.localNano.use(_this.db(user)));
-    });
-  }
+Guy.prototype.get = function(user, callback) {
+  var _this = this
+    , userDatabase = this.db(user);
+  this.localNano.db.get(userDatabase, function(err, body) {
+    if (err) {
+      return callback(new Error(err.message));
+    }
+    callback(null, _this.localNano.use(userDatabase));
+  });
   return this;
 };
 
 // destroys the db on the remote first, if possible
 Guy.prototype.destroy = function(user, callback) {
   var _this = this
+    , userDatabase = this.db(user)
     , db = this.localNano.use(this.options.database);
-  this.remove(user, function(err) {
-    if (err) return callback(new Error(err.message));
-    var userId = 'org.couchdb.user:' + user;
-    _this.localNano.use('_users').get(userId, function(err, result) {
-      if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-        return callback(new Error(err.message));
-      }
-      _this.localNano.use('_users').destroy(userId, result._rev, function(err) {
-        if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-          return callback(new Error(err.message));
-        }
-        callback(null);
-      });
-    });
+  this.remoteNano.db.destroy(userDatabase, function(err) {
+    if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+      return callback(new Error(err.message));
+    }
+    // FIXME: support _users and make option
+    // var userId = 'org.couchdb.user:' + user;
+    // _this.remoteNano.use('_users').get(userId, function(err, result) {
+    //   if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+    //     return callback(new Error(err.message));
+    //   }
+    //   if (result) {
+    //     _this.remoteNano.use('_users').destroy(userId, result._rev, function(err) {
+    //       if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+    //         return callback(new Error(err.message));
+    //       }
+          _this._removeTrackingDocument(user, callback);
+    //     });
+    //   }
+    //   else {
+    //     // user does not exist on the server, just try to remove tracking doc
+    //     _this._removeTrackingDocument(user, callback);
+    //   }
+    // });
   });
   return this;
 };
@@ -359,30 +374,24 @@ Guy.prototype.destroy = function(user, callback) {
 // registers the db on the remote immediately
 Guy.prototype.register = function(user, password, callback) {
   var _this = this
-    , db = this.localNano.use('_users');
-  db.insert(this._buildUserData(user, password), 'org.couchdb.user:' + user, function(err, result) {
-    if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-      return callback(new Error(err.message));
-    }
-    _this.create(user, function(err, userDb) {
-      if (err) {
+    , userDatabase = this.db(user);
+  // FIXME: support users and make option
+  // this.remoteNano.use('_users').insert(this._buildUserData(user, password), 'org.couchdb.user:' + user, function(err, result) {
+  //   if (err && !re_acceptableErrorsForCrud.test(err.message)) {
+  //     return callback(new Error(err.message));
+  //   }
+    // replicate the newly created database
+    // create database remote
+    _this.logger && _this.logger.debug('creating database: created locally; creating remote');
+    _this.remoteNano.db.create(userDatabase, function(err) {
+      if (err && !re_acceptableErrorsForCrud.test(err.message)) {
         return callback(new Error(err.message));
       }
-      var securityData = {
-        // TODO: configurable?
-        // only super admins have access
-        admins: {
-          names: [],
-          roles: [],
-        },
-        members: {
-          names: [user],
-          roles: [_this.options.databaseRole],
-        }
-      };
-      userDb.insert(securityData, '_security', callback);
+      _this.logger && _this.logger.debug('creating database: created locally; adding tracking row in user db');
+      // insert it into the list of all user databases
+      _this._addTrackingDocument(user, callback);
     });
-  });
+  // });
   return this;
 };
 
