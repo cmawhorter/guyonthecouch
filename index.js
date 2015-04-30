@@ -22,6 +22,10 @@ function Guy(options) {
   this.options.local = this.options.local || url.parse('http://127.0.0.1:5984');
   this.options.remote = this.options.remote;
   this.options.adjustUserRecord = this.options.adjustUserRecord || null;
+  this.options.replicationStrategy = this.options.replicationStrategy || {
+    type: 'bi',
+    continuous: true,
+  };
   this.logger = this.options.log || null;
   this.localNano = null;
   this.remoteNano = null;
@@ -184,26 +188,83 @@ Guy.prototype._queueWorker = function(task, callback) {
 };
 
 // inserts two-way replication between database on local and remote
+Guy.prototype._replicateBidirectional = function(database, continuous, callback) {
+  var _this = this;
+  _this._replicateUnidirectionalTo(database, continuous, function(err, body) {
+    if (err) {
+      return callback(err);
+    }
+    _this._replicateUnidirectionalFrom(database, continuous, callback);
+  });
+};
+
+// mostly backwards compat
 Guy.prototype._replicate = function(database, callback) {
+  this._replicateBidirectional(database, true, callback);
+};
+
+Guy.prototype._replicateWithStrategy = function(database, callback) {
+  switch (this.options.replicationStrategy.type) {
+    case 'bi':
+      this._replicateBidirectional(database, this.options.replicationStrategy.continuous, callback);
+      return;
+
+    case 'uni-to':
+      this._replicateUnidirectionalTo(database, this.options.replicationStrategy.continuous, callback);
+      return;
+
+    case 'uni-from':
+      this._replicateUnidirectionalFrom(database, this.options.replicationStrategy.continuous, callback);
+      return;
+
+    case 'bi-split':
+      var _this = this;
+      _this._replicateUnidirectionalTo(database, this.options.replicationStrategy.continuousTo, function(err, body) {
+        if (err) {
+          return callback(err);
+        }
+        _this._replicateUnidirectionalFrom(database, this.options.replicationStrategy.continuousFrom, callback);
+      });
+      return;
+
+    default:
+      return callback(new Error('Invalid replication strategy "' + this.options.replicationStrategy.type + '"'));
+  }
+};
+
+Guy.prototype._replicateUnidirectionalTo = function(database, continuous, callback) {
   var _this = this;
   var rep = this.localNano.use('_replicator')
     , localUrl = this.databaseUrl('local', database)
     , remoteUrl = this.databaseUrl('remote', database);
-  _this.logger && _this.logger.debug('replicating database: ', database);
+  _this.logger && _this.logger.debug('replicating database to remote: ', database);
   rep.insert({
     source: localUrl,
     target: remoteUrl,
-    continuous: true
+    continuous: continuous
   }, null, function(err, body) {
     if (err) {
       return callback(new Error(err.message));
     }
-    _this.logger && _this.logger.debug('replicating database: replicated partially complete');
-    rep.insert({
-      target: localUrl,
-      source: remoteUrl,
-      continuous: true
-    }, null, callback);
+    _this.logger && _this.logger.debug('replicating database to remote: complete');
+  });
+};
+
+Guy.prototype._replicateUnidirectionalFrom = function(database, continuous, callback) {
+  var _this = this;
+  var rep = this.localNano.use('_replicator')
+    , localUrl = this.databaseUrl('local', database)
+    , remoteUrl = this.databaseUrl('remote', database);
+  _this.logger && _this.logger.debug('replicating database from remote: ', database);
+  rep.insert({
+    source: remoteUrl,
+    target: localUrl,
+    continuous: continuous
+  }, null, function(err, body) {
+    if (err) {
+      return callback(new Error(err.message));
+    }
+    _this.logger && _this.logger.debug('replicating database from remote: complete');
   });
 };
 
@@ -259,7 +320,7 @@ Guy.prototype._create = function(user, callback) {
     //   if (err && !re_acceptableErrorsForCrud.test(err.message)) {
     //     return callback(new Error(err.message));
     //   }
-      _this._replicate(userDatabase, callback);
+      _this._replicateWithStrategy(userDatabase, callback);
     // });
   });
 };
