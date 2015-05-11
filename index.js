@@ -342,6 +342,7 @@ Guy.prototype._remove = function(user, callback) {
 
 Guy.prototype._addTrackingDocument = function(user, callback) {
   var _this = this;
+  _this.logger && _this.logger.debug('adding database tracking document: ' + user);
   var userDatabase = _this.db(user);
   _this.remoteNano.use(userDatabase).insert({ created: new Date() }, user, function(err, body) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
