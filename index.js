@@ -247,6 +247,7 @@ Guy.prototype._replicateUnidirectionalTo = function(database, continuous, callba
       return callback(new Error(err.message));
     }
     _this.logger && _this.logger.debug('replicating database to remote: complete');
+    callback(null);
   });
 };
 
@@ -265,6 +266,7 @@ Guy.prototype._replicateUnidirectionalFrom = function(database, continuous, call
       return callback(new Error(err.message));
     }
     _this.logger && _this.logger.debug('replicating database from remote: complete');
+    callback(null);
   });
 };
 
