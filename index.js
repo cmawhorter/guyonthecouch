@@ -342,7 +342,8 @@ Guy.prototype._remove = function(user, callback) {
 
 Guy.prototype._addTrackingDocument = function(user, callback) {
   var _this = this;
-  _this.remoteNano.use(_this.options.database).insert({ created: new Date() }, user, function(err, body) {
+  var userDatabase = _this.db(user);
+  _this.remoteNano.use(userDatabase).insert({ created: new Date() }, user, function(err, body) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
       return callback(new Error(err.message));
     }
@@ -353,7 +354,8 @@ Guy.prototype._addTrackingDocument = function(user, callback) {
 Guy.prototype._removeTrackingDocument = function(user, callback) {
   var _this = this;
   _this.logger && _this.logger.debug('removing database tracking document: ' + user);
-  this.remoteNano.use(this.options.database).get(user, function(err, result) {
+  var userDatabase = _this.db(user);
+  this.remoteNano.use(userDatabase).get(user, function(err, result) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
       return callback(new Error(err.message));
     }
