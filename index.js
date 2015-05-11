@@ -219,11 +219,11 @@ Guy.prototype._replicateWithStrategy = function(database, callback) {
 
     case 'bi-split':
       var _this = this;
-      _this._replicateUnidirectionalTo(database, this.options.replicationStrategy.continuousTo, function(err, body) {
+      _this._replicateUnidirectionalTo(database, _this.options.replicationStrategy.continuousTo, function(err, body) {
         if (err) {
           return callback(err);
         }
-        _this._replicateUnidirectionalFrom(database, this.options.replicationStrategy.continuousFrom, callback);
+        _this._replicateUnidirectionalFrom(database, _this.options.replicationStrategy.continuousFrom, callback);
       });
       return;
 
