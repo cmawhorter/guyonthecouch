@@ -101,12 +101,12 @@ Guy.prototype._initDatabase = function(callback) {
   _this.logger && _this.logger.debug('init local database');
   this.localNano.db.create(this.options.database, function(err, body) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-      return callback(new Error(err.message));
+      return callback(new Error(err.message + ' (_initDatabase)'));
     }
     _this.logger && _this.logger.debug('init local database: creating local, replicating');
     _this._replicate(_this.options.database, function(err) {
       if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-        return callback(new Error(err.message));
+        return callback(new Error(err.message + ' (_initDatabase)'));
       }
       _this._watchLocal(callback);
     });
@@ -135,13 +135,13 @@ Guy.prototype._syncLocal = function(callback) {
   _this.logger && _this.logger.debug('starting to sync offline user database changes');
   this.localNano.db.list(function(err, allLocalDatabases) {
     if (err) {
-      return callback(new Error(err.message));
+      return callback(new Error(err.message + ' (_syncLocal)'));
     }
     _this.logger && _this.logger.debug('sync; all databases', allLocalDatabases);
     // FIXME: convert to paging otherwise a large number of databases could spike the memory usage
     _this.localNano.use(_this.options.database).list(function(err, userDatabases) {
       if (err) {
-        return callback(new Error(err.message));
+        return callback(new Error(err.message + ' (_syncLocal)'));
       }
       userDatabases.rows.forEach(function(row) {
         var userDatabase = row.id;
@@ -334,7 +334,7 @@ Guy.prototype._remove = function(user, callback) {
   this.localNano.db.destroy(userDatabase, function(err) {
     _this.logger && _this.logger.debug('removing database: ' + userDatabase + '; callback reached');
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-      return callback(new Error(err.message));
+      return callback(new Error(err.message + ' (_remove)'));
     }
     callback(null);
   });
@@ -345,7 +345,7 @@ Guy.prototype._addTrackingDocument = function(user, callback) {
   _this.logger && _this.logger.debug('adding database tracking document: ' + user + ' to ' + _this.options.database);
   _this.remoteNano.use(_this.options.database).insert({ created: new Date() }, user, function(err, body) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-      return callback(new Error(err.message));
+      return callback(new Error(err.message + ' (_addTrackingDocument)'));
     }
     callback(null);
   });
@@ -356,12 +356,12 @@ Guy.prototype._removeTrackingDocument = function(user, callback) {
   _this.logger && _this.logger.debug('removing database tracking document: ' + user + ' to ' + _this.options.database);
   this.remoteNano.use(this.options.database).get(user, function(err, result) {
     if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-      return callback(new Error(err.message));
+      return callback(new Error(err.message + ' (_removeTrackingDocument)'));
     }
     _this.remoteNano.use(_this.options.database).destroy(user, result ? result._rev : null, function(err) {
       _this.logger && _this.logger.debug('removing database tracking document: ' + user + '; callback reached');
       if (err && !re_acceptableErrorsForCrud.test(err.message)) {
-        return callback(new Error(err.message));
+        return callback(new Error(err.message + ' (_removeTrackingDocument)'));
       }
       callback(null);
     });
